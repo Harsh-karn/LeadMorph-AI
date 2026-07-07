@@ -456,7 +456,7 @@ export default function HomePage() {
                     <div className="progress-fill" style={{ width: `${progress}%` }} />
                   </div>
                   <div className="progress-text">
-                    Intelligently mapping columns... (Local AI processing depends on your computer's speed and may take a few minutes) — {Math.floor(progress)}%
+                    Intelligently mapping columns using Gemini AI... (Processing depends on dataset size) — {Math.floor(progress)}%
                   </div>
                 </div>
               )}
