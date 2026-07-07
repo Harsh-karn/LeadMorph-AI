@@ -1,15 +1,15 @@
-import Ollama from 'ollama';
 import { CrmRecord } from '../types/crm';
 import { validateAndClean } from './crmMapper';
 
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2';
+const LM_STUDIO_URL = process.env.LM_STUDIO_URL || 'http://127.0.0.1:1234/v1/chat/completions';
+const MODEL_NAME = process.env.LM_STUDIO_MODEL || 'local-model';
 const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || '15', 10);
 const MAX_RETRIES = 3;
 
 const SYSTEM_PROMPT = `You are a CRM data extraction assistant. Your job is to map CSV rows to GrowEasy CRM fields.
 
 ## Target CRM Fields
-- created_at: Lead creation date (must be parseable by JS new Date())
+- created_at: Lead creation date (ISO string format, e.g. "2026-05-13T14:20:48Z")
 - name: Full name of the lead
 - email: Primary email address
 - country_code: Country dial code (e.g. +91, +1)
@@ -114,18 +114,27 @@ ${JSON.stringify(batch, null, 2)}
 
 Map these records to the CRM format. Return ONLY a JSON array.`;
 
-  const response = await Ollama.chat({
-    model: OLLAMA_MODEL,
-    messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: userMessage },
-    ],
-    options: {
-      temperature: 0.1, // Low temperature for consistent structured output
-    },
+  const response = await fetch(LM_STUDIO_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: MODEL_NAME,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userMessage },
+      ],
+      temperature: 0.1,
+      response_format: { type: 'json_object' } // Helps enforce JSON if supported
+    }),
   });
 
-  const rawText = response.message.content.trim();
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`LM Studio API Error (${response.status}): ${errText}`);
+  }
+
+  const data = await response.json();
+  const rawText = data.choices?.[0]?.message?.content?.trim() || '';
 
   // Extract JSON array from response (handle markdown code blocks)
   const jsonMatch = rawText.match(/\[[\s\S]*\]/);
