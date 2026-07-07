@@ -10,13 +10,35 @@ const MAX_RETRIES = 3;
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
 const SYSTEM_PROMPT = `Map CSV rows to CRM fields. Return ONLY a valid JSON array of objects.
-Keys: created_at, name, email, country_code, mobile_without_country_code, company, city, state, country, lead_owner, crm_status, crm_note, data_source, possession_time, description.
+
+CRM Fields:
+- created_at: Lead creation date (must be parseable by new Date())
+- name: Lead name
+- email: Primary email
+- country_code: Country code
+- mobile_without_country_code: Mobile number
+- company: Company name
+- city: City
+- state: State
+- country: Country
+- lead_owner: Lead owner
+- crm_status: Lead status
+- crm_note: Notes, remarks, extra info
+- data_source: Source
+- possession_time: Property possession time
+- description: Additional description
+
 Rules:
-1. crm_status in [GOOD_LEAD_FOLLOW_UP, DID_NOT_CONNECT, BAD_LEAD, SALE_DONE, ""]
-2. data_source in [leads_on_demand, meridian_tower, eden_park, varah_swamy, sarjapur_plots, ""]
-3. If no email AND no mobile, output {"skip": true, "reason": "no contact"}.
-Output MUST be an array starting with '[' and ending with ']'. Example:
-[{"name": "John", "email": "j@ex.com", "mobile_without_country_code": "123", "crm_status": ""}]`;
+1. crm_status MUST be one of: [GOOD_LEAD_FOLLOW_UP, DID_NOT_CONNECT, BAD_LEAD, SALE_DONE, ""]
+2. data_source MUST be one of: [leads_on_demand, meridian_tower, eden_park, varah_swamy, sarjapur_plots, ""]. If none match confidently, leave it blank.
+3. crm_note: Use for remarks, follow-up notes, additional comments, extra phone numbers, extra email addresses, or any useful info that doesn't fit another field.
+4. Multiple Emails: Use the first email. Append remaining emails into crm_note.
+5. Multiple Mobiles: Use the first mobile. Append remaining numbers into crm_note.
+6. Escape line breaks (e.g., \\n) so the JSON remains valid.
+7. Skip Invalid Records: If a record contains NEITHER email NOR mobile number, output {"skip": true, "reason": "Missing both email and mobile number"}.
+
+Output MUST be a JSON array. Example:
+[{"name": "John", "email": "j@ex.com", "mobile_without_country_code": "123", "crm_status": "", "crm_note": ""}]`;
 
 type AiOutputRow = Partial<CrmRecord> & { skip?: boolean; reason?: string };
 
