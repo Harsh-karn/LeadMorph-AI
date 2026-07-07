@@ -31,6 +31,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
       res.status(400).json({ error: 'No file uploaded' });
       return;
     }
+    console.log(`\n📥 Received file upload: ${req.file.originalname} (${req.file.size} bytes)`);
 
     // 1. Parse CSV
     let rows: Record<string, string>[];
