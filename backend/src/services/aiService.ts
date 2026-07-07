@@ -6,13 +6,14 @@ const MODEL_NAME = process.env.LM_STUDIO_MODEL || 'local-model';
 const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || '15', 10);
 const MAX_RETRIES = 3;
 
-const SYSTEM_PROMPT = `Map CSV rows to CRM fields. Return ONLY a JSON array.
-Fields: created_at, name, email, country_code, mobile_without_country_code, company, city, state, country, lead_owner, crm_status, crm_note, data_source, possession_time, description.
+const SYSTEM_PROMPT = `Map CSV rows to CRM fields. Return ONLY a valid JSON array of objects.
+Keys: created_at, name, email, country_code, mobile_without_country_code, company, city, state, country, lead_owner, crm_status, crm_note, data_source, possession_time, description.
 Rules:
-1. crm_status MUST be: GOOD_LEAD_FOLLOW_UP, DID_NOT_CONNECT, BAD_LEAD, SALE_DONE, or "".
-2. data_source MUST be: leads_on_demand, meridian_tower, eden_park, varah_swamy, sarjapur_plots, or "".
+1. crm_status in [GOOD_LEAD_FOLLOW_UP, DID_NOT_CONNECT, BAD_LEAD, SALE_DONE, ""]
+2. data_source in [leads_on_demand, meridian_tower, eden_park, varah_swamy, sarjapur_plots, ""]
 3. If no email AND no mobile, output {"skip": true, "reason": "no contact"}.
-Return ONLY valid JSON array.`;
+Output MUST be an array starting with '[' and ending with ']'. Example:
+[{"name": "John", "email": "j@ex.com", "mobile_without_country_code": "123", "crm_status": ""}]`;
 
 type AiOutputRow = Partial<CrmRecord> & { skip?: boolean; reason?: string };
 
@@ -114,10 +115,17 @@ Map these records to the CRM format. Return ONLY a JSON array.`;
   // Extract JSON array from response (handle markdown code blocks)
   const jsonMatch = rawText.match(/\[[\s\S]*\]/);
   if (!jsonMatch) {
-    throw new Error(`No JSON array found in model response: ${rawText.slice(0, 200)}`);
+    console.error(`[AI ERROR] No JSON array found in output:\n${rawText}`);
+    throw new Error(`No JSON array found in model response`);
   }
 
-  const aiOutputRows: AiOutputRow[] = JSON.parse(jsonMatch[0]);
+  let aiOutputRows: AiOutputRow[];
+  try {
+    aiOutputRows = JSON.parse(jsonMatch[0]);
+  } catch (err) {
+    console.error(`[AI ERROR] Failed to parse JSON:\n${jsonMatch[0]}`);
+    throw new Error(`Failed to parse AI output as JSON`);
+  }
 
   const parsed: CrmRecord[] = [];
   const skipped: SkippedResult[] = [];
