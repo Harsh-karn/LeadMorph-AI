@@ -30,21 +30,11 @@ const STATUS_MAP: Record<string, { label: string; cls: string }> = {
 };
 
 // ─── Sidebar nav ─────────────────────────────────────────────────────────────
-const NAV_MAIN = [
+const NAV_ITEMS = [
   { icon: '⊞', label: 'Dashboard' },
-  { icon: '✦', label: 'Generate Leads' },
-  { icon: '☰', label: 'Manage Leads', key: 'leads' },
-  { icon: '◎', label: 'Engage Leads' },
-];
-
-const NAV_CONTROL = [
-  { icon: '👥', label: 'Team Members' },
+  { icon: '☰', label: 'Manage Leads' },
   { icon: '⊕', label: 'Lead Sources' },
-  { icon: '◈', label: 'Ad Accounts' },
-  { icon: '💬', label: 'WhatsApp Account' },
-  { icon: '📞', label: 'Tele Calling' },
-  { icon: '⊞', label: 'CRM Fields' },
-  { icon: '⚙', label: 'API Center' },
+  { icon: '⚙', label: 'Settings' },
 ];
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -160,10 +150,8 @@ export default function HomePage() {
           <span className="sidebar-chevron">›</span>
         </div>
 
-        <nav>
-          <div className="nav-section">
-            <div className="nav-section-label">Main</div>
-            {NAV_MAIN.map((item) => (
+        <nav style={{ padding: '12px 0' }}>
+            {NAV_ITEMS.map((item) => (
               <div
                 key={item.label}
                 className={`nav-item${activeNav === item.label ? ' active' : ''}`}
@@ -173,32 +161,11 @@ export default function HomePage() {
                 {item.label}
               </div>
             ))}
-          </div>
-
-          <div className="nav-section">
-            <div className="nav-section-label">Control Center</div>
-            {NAV_CONTROL.map((item) => (
-              <div
-                key={item.label}
-                className={`nav-item${activeNav === item.label ? ' active' : ''}`}
-                onClick={() => setActiveNav(item.label)}
-              >
-                <span className="nav-icon">{item.icon}</span>
-                {item.label}
-              </div>
-            ))}
-          </div>
-        </nav>
-
-        <div className="sidebar-bottom">
-          <div className="nav-item">
-            <span className="nav-icon">🏢</span>
-            Business Center
-          </div>
-        </div>
-      </aside>
+          </nav>
+        </aside>
 
       {/* ── MAIN ── */}
+
       <div className="main-content">
         {/* Page header */}
         <div className="page-header">
