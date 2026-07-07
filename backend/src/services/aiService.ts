@@ -1,10 +1,13 @@
+import { GoogleGenAI } from '@google/genai';
 import { CrmRecord } from '../types/crm';
 import { validateAndClean } from './crmMapper';
 
-const LM_STUDIO_URL = process.env.LM_STUDIO_URL || 'http://127.0.0.1:1234/v1/chat/completions';
-const MODEL_NAME = process.env.LM_STUDIO_MODEL || 'local-model';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || '15', 10);
 const MAX_RETRIES = 3;
+
+// Initialize Gemini SDK
+const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
 const SYSTEM_PROMPT = `Map CSV rows to CRM fields. Return ONLY a valid JSON array of objects.
 Keys: created_at, name, email, country_code, mobile_without_country_code, company, city, state, country, lead_owner, crm_status, crm_note, data_source, possession_time, description.
@@ -49,6 +52,9 @@ export async function extractCrmBatch(
   return { parsed: allParsed, skipped: allSkipped };
 }
 
+// Simple sleep helper for retries
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function processBatchWithRetry(
   batch: Record<string, string>[],
   headers: string[]
@@ -82,6 +88,10 @@ async function processBatch(
   batch: Record<string, string>[],
   headers: string[]
 ): Promise<BatchResult> {
+  if (!GEMINI_API_KEY) {
+    throw new Error('GEMINI_API_KEY is not set in backend/.env');
+  }
+
   const userMessage = `CSV Headers: ${headers.join(', ')}
 
 Rows to process (${batch.length} records):
@@ -89,28 +99,20 @@ ${JSON.stringify(batch, null, 2)}
 
 Map these records to the CRM format. Return ONLY a JSON array.`;
 
-  console.log(`Sending batch of ${batch.length} rows to LM Studio...`);
-  const response = await fetch(LM_STUDIO_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: MODEL_NAME,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userMessage },
-      ],
+  console.log(`Sending batch of ${batch.length} rows to Gemini...`);
+  
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: userMessage,
+    config: {
+      systemInstruction: SYSTEM_PROMPT,
       temperature: 0.1,
-    }),
+    }
   });
-  console.log(`Received response from LM Studio: ${response.status}`);
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`LM Studio API Error (${response.status}): ${errText}`);
-  }
+  console.log(`Received response from Gemini API.`);
 
-  const data = await response.json() as any;
-  const rawText = data.choices?.[0]?.message?.content?.trim() || '';
+  const rawText = response.text?.trim() || '';
 
   // Extract JSON array from response (handle markdown code blocks)
   const jsonMatch = rawText.match(/\[[\s\S]*\]/);

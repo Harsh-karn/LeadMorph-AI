@@ -64,10 +64,10 @@ router.post('/', upload.single('file'), async (req: Request, res: Response): Pro
     console.error('Import error:', err);
     const message = err instanceof Error ? err.message : 'Unknown error';
 
-    if (message.includes('ECONNREFUSED') || message.includes('fetch failed')) {
+    if (message.includes('GEMINI_API_KEY is not set')) {
       res.status(503).json({
-        error: 'Ollama is not running. Please start Ollama and ensure the model is pulled.',
-        hint: 'Run: ollama serve  then  ollama pull llama3.2',
+        error: 'Gemini API Key is missing. Please add it to the backend/.env file.',
+        hint: 'GEMINI_API_KEY=your_api_key_here',
       });
       return;
     }
