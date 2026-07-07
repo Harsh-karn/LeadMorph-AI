@@ -1,293 +1,234 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import DropZone from '@/components/DropZone';
-import PreviewTable from '@/components/PreviewTable';
-import ResultTable from '@/components/ResultTable';
-import ProgressBar from '@/components/ProgressBar';
-import { parseCSVFile, ParsedCSV } from '@/lib/csvParser';
-import { importCSV, exportToCSV, ImportResult } from '@/lib/api';
+import { parseCSVFile, ParsedCSV, formatFileSize } from '@/lib/csvParser';
+import { importCSV, exportToCSV, ImportResult, CrmRecord } from '@/lib/api';
+import { useDropzone } from 'react-dropzone';
 
-type Step = 'upload' | 'preview' | 'processing' | 'results';
+// ─── Sample CSV template data ───────────────────────────────────────────────
+const SAMPLE_CSV = `created_at,name,email,country_code,mobile_without_country_code,company,city,state,country,lead_owner,crm_status,crm_note,data_source,possession_time,description
+2026-05-13 14:20:48,John Doe,john.doe@example.com,+91,9876543210,GrowEasy,Mumbai,Maharashtra,India,owner@example.com,GOOD_LEAD_FOLLOW_UP,Client asked to reschedule demo,leads_on_demand,,
+2026-05-13 14:25:30,Sarah Johnson,sarah.johnson@example.com,+91,9876543211,Tech Solutions,Bangalore,Karnataka,India,owner@example.com,DID_NOT_CONNECT,Person was busy,,,
+`;
+
+function downloadSampleCSV() {
+  const blob = new Blob([SAMPLE_CSV], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'sample-crm-template.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── Status helpers ──────────────────────────────────────────────────────────
+const STATUS_MAP: Record<string, { label: string; cls: string }> = {
+  GOOD_LEAD_FOLLOW_UP: { label: 'Good Lead', cls: 'badge-good' },
+  SALE_DONE:           { label: 'Sale Done', cls: 'badge-sale' },
+  DID_NOT_CONNECT:     { label: 'Not Dialed', cls: 'badge-no-connect' },
+  BAD_LEAD:            { label: 'Bad Lead',  cls: 'badge-bad'  },
+};
+
+// ─── Sidebar nav ─────────────────────────────────────────────────────────────
+const NAV_MAIN = [
+  { icon: '⊞', label: 'Dashboard' },
+  { icon: '✦', label: 'Generate Leads' },
+  { icon: '☰', label: 'Manage Leads', key: 'leads' },
+  { icon: '◎', label: 'Engage Leads' },
+];
+
+const NAV_CONTROL = [
+  { icon: '👥', label: 'Team Members' },
+  { icon: '⊕', label: 'Lead Sources' },
+  { icon: '◈', label: 'Ad Accounts' },
+  { icon: '💬', label: 'WhatsApp Account' },
+  { icon: '📞', label: 'Tele Calling' },
+  { icon: '⊞', label: 'CRM Fields' },
+  { icon: '⚙', label: 'API Center' },
+];
+
+// ─── Component ───────────────────────────────────────────────────────────────
+type ModalStep = 'upload' | 'preview' | 'processing' | 'done';
 
 export default function HomePage() {
-  const [step, setStep] = useState<Step>('upload');
+  const [activeNav, setActiveNav] = useState('Manage Leads');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalStep, setModalStep] = useState<ModalStep>('upload');
+
   const [file, setFile] = useState<File | null>(null);
   const [csvData, setCsvData] = useState<ParsedCSV | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState({ processed: 0, total: 0 });
+  const [progress, setProgress] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [visibleCount, setVisibleCount] = useState(10);
 
-  const stepIndex: Record<Step, number> = { upload: 1, preview: 2, processing: 3, results: 4 };
-  const currentStep = stepIndex[step];
-
-  const handleFileSelected = useCallback(async (selectedFile: File) => {
+  // Dropzone
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    if (!acceptedFiles.length) return;
+    const f = acceptedFiles[0];
+    setFile(f);
     setError(null);
-    setFile(selectedFile);
     try {
-      const parsed = await parseCSVFile(selectedFile);
-      if (parsed.totalRows === 0) {
-        setError('The CSV file appears to be empty or has no data rows.');
-        return;
-      }
+      const parsed = await parseCSVFile(f);
       setCsvData(parsed);
-      setStep('preview');
-    } catch (err) {
-      setError((err as Error).message);
+      setModalStep('preview');
+    } catch (e) {
+      setError((e as Error).message);
     }
   }, []);
 
-  const handleConfirmImport = useCallback(async () => {
-    if (!file || !csvData) return;
-    setError(null);
-    setStep('processing');
-    setProgress({ processed: 0, total: csvData.totalRows });
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { 'text/csv': ['.csv'], 'application/vnd.ms-excel': ['.csv'] },
+    maxFiles: 1,
+    disabled: modalStep !== 'upload',
+  });
 
-    // Simulate incremental progress (real progress comes when backend responds)
-    const progressInterval = setInterval(() => {
-      setProgress((prev) => ({
-        ...prev,
-        processed: Math.min(prev.processed + Math.ceil(csvData.totalRows * 0.05), csvData.totalRows - 1),
-      }));
-    }, 800);
-
-    try {
-      const importResult = await importCSV(file);
-      clearInterval(progressInterval);
-      setProgress({ processed: csvData.totalRows, total: csvData.totalRows });
-      setResult(importResult);
-      setStep('results');
-    } catch (err) {
-      clearInterval(progressInterval);
-      setError((err as Error).message);
-      setStep('preview');
-    }
-  }, [file, csvData]);
-
-  const handleReset = useCallback(() => {
-    setStep('upload');
+  const handleOpenModal = () => {
+    setModalStep('upload');
     setFile(null);
     setCsvData(null);
-    setResult(null);
     setError(null);
-    setProgress({ processed: 0, total: 0 });
-  }, []);
+    setProgress(0);
+    setModalOpen(true);
+  };
 
-  const handleExport = useCallback(() => {
-    if (result?.parsed) {
-      exportToCSV(result.parsed, 'leadmorph-crm-export.csv');
+  const handleCloseModal = () => setModalOpen(false);
+
+  const handleRemoveFile = () => {
+    setFile(null);
+    setCsvData(null);
+    setModalStep('upload');
+  };
+
+  const handleUpload = async () => {
+    if (!file) return;
+    setError(null);
+    setModalStep('processing');
+    setProgress(0);
+
+    const interval = setInterval(() => {
+      setProgress((p) => Math.min(p + 6, 92));
+    }, 600);
+
+    try {
+      const res = await importCSV(file);
+      clearInterval(interval);
+      setProgress(100);
+      setResult(res);
+      setVisibleCount(10);
+      setTimeout(() => {
+        setModalOpen(false);
+        setModalStep('upload');
+      }, 600);
+    } catch (e) {
+      clearInterval(interval);
+      setError((e as Error).message);
+      setModalStep('preview');
     }
-  }, [result]);
+  };
+
+  // Lead filtering + pagination
+  const leads: CrmRecord[] = result?.parsed ?? [];
+  const filtered = leads.filter((l) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      l.email.toLowerCase().includes(q) ||
+      l.mobile_without_country_code.includes(q) ||
+      l.name.toLowerCase().includes(q)
+    );
+  });
+  const visible = filtered.slice(0, visibleCount);
 
   return (
-    <div className="app-wrapper">
-      {/* Header */}
-      <header className="header">
-        <div className="container">
-          <div className="header-inner">
-            <div className="logo">
-              <div className="logo-icon">⚡</div>
-              <div>
-                <div className="logo-text">LeadMorph AI</div>
-                <div className="logo-subtitle">Intelligent CSV Importer</div>
-              </div>
-            </div>
-            <div className="header-badge">🤖 Powered by Ollama LLM</div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main */}
-      <main className="container" style={{ paddingTop: 48, paddingBottom: 64, flex: 1 }}>
-        {/* Hero */}
-        <section className="hero">
-          <div className="hero-tag">
-            <span className="hero-dot" />
-            GrowEasy CRM Importer
-          </div>
-          <h1 className="hero-title">
-            Import Any CSV into{' '}
-            <span className="hero-title-gradient">GrowEasy CRM</span>
-            <br />
-            with AI Precision
-          </h1>
-          <p className="hero-subtitle">
-            Upload any CSV — Facebook Ads, Google Ads, real estate exports, sales reports — and
-            our AI automatically maps every column to the correct CRM field.
-          </p>
-        </section>
-
-        {/* Steps */}
-        <div className="steps-bar">
-          {[
-            { num: 1, label: 'Upload CSV' },
-            { num: 2, label: 'Preview' },
-            { num: 3, label: 'AI Process' },
-            { num: 4, label: 'Results' },
-          ].map((s, i, arr) => (
-            <div key={s.num} style={{ display: 'flex', alignItems: 'center' }}>
-              <div className="step-item">
-                <div
-                  className={`step-number ${
-                    currentStep > s.num
-                      ? 'completed'
-                      : currentStep === s.num
-                      ? 'active'
-                      : ''
-                  }`}
-                >
-                  {currentStep > s.num ? '✓' : s.num}
-                </div>
-                <span
-                  className={`step-label ${
-                    currentStep > s.num
-                      ? 'completed'
-                      : currentStep === s.num
-                      ? 'active'
-                      : ''
-                  }`}
-                >
-                  {s.label}
-                </span>
-              </div>
-              {i < arr.length - 1 && (
-                <div className={`step-connector${currentStep > s.num ? ' completed' : ''}`} />
-              )}
-            </div>
-          ))}
+    <div className="app-layout">
+      {/* ── SIDEBAR ── */}
+      <aside className="sidebar">
+        <div className="sidebar-logo">
+          <div className="logo-box">G</div>
+          <span className="logo-name">GrowEasy</span>
         </div>
 
-        {/* Error alert */}
-        {error && (
-          <div className="alert alert-error fade-in" style={{ marginBottom: 24 }}>
-            <span style={{ fontSize: 20 }}>⚠️</span>
-            <div>
-              <strong>Error:</strong> {error}
-              {error.includes('Ollama') && (
-                <div style={{ marginTop: 8, fontSize: 13 }}>
-                  💡 <strong>Fix:</strong> Make sure Ollama is running (
-                  <code style={{ background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: 4 }}>
-                    ollama serve
-                  </code>
-                  ) and the model is pulled (
-                  <code style={{ background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: 4 }}>
-                    ollama pull llama3.2
-                  </code>
-                  )
-                </div>
-              )}
-            </div>
+        <div className="sidebar-user">
+          <div className="user-avatar">H</div>
+          <div className="user-info">
+            <div className="user-name">Harsh Karn</div>
+            <div className="user-role">Owner</div>
           </div>
-        )}
+          <span className="sidebar-chevron">›</span>
+        </div>
 
-        {/* ==================== STEP 1: Upload ==================== */}
-        {step === 'upload' && (
-          <div className="card slide-up">
-            <h2 className="card-title">
-              <span className="icon">📤</span> Upload Your CSV
-            </h2>
-            <p className="card-description">
-              Drop any CSV file. Our AI handles different column names and formats automatically.
-            </p>
-            <DropZone onFileSelected={handleFileSelected} />
-
-            <div
-              style={{
-                marginTop: 32,
-                padding: '20px 24px',
-                background: 'var(--bg-glass)',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--border)',
-              }}
-            >
-              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12, fontWeight: 600 }}>
-                ✅ Supported CSV types:
-              </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {['Facebook Lead Export', 'Google Ads CSV', 'Excel Sheet', 'Real Estate CRM', 'Sales Report', 'Marketing Agency CSV', 'Custom Spreadsheet'].map((t) => (
-                  <span key={t} className="badge badge-gray">{t}</span>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ==================== STEP 2: Preview ==================== */}
-        {step === 'preview' && csvData && (
-          <div className="card slide-up">
-            <h2 className="card-title">
-              <span className="icon">👁️</span> Preview Your Data
-            </h2>
-            <p className="card-description">
-              Review the raw CSV data below. Click <strong>Confirm Import</strong> to let AI map
-              your columns to CRM fields.
-            </p>
-
-            <PreviewTable headers={csvData.headers} rows={csvData.rows} />
-
-            <div
-              className="alert alert-info"
-              style={{ marginTop: 24 }}
-            >
-              <span>🤖</span>
-              <span>
-                <strong>{csvData.totalRows} rows</strong> detected with{' '}
-                <strong>{csvData.headers.length} columns</strong>. AI will intelligently map:{' '}
-                <em>{csvData.headers.slice(0, 4).join(', ')}{csvData.headers.length > 4 ? '...' : ''}</em>
-              </span>
-            </div>
-
-            <div className="action-row">
-              <button
-                id="confirm-import-btn"
-                className="btn btn-success btn-lg"
-                onClick={handleConfirmImport}
+        <nav>
+          <div className="nav-section">
+            <div className="nav-section-label">Main</div>
+            {NAV_MAIN.map((item) => (
+              <div
+                key={item.label}
+                className={`nav-item${activeNav === item.label ? ' active' : ''}`}
+                onClick={() => setActiveNav(item.label)}
               >
-                🚀 Confirm & Import with AI
-              </button>
-              <button className="btn btn-danger" onClick={handleReset}>
-                ✕ Start Over
-              </button>
-            </div>
+                <span className="nav-icon">{item.icon}</span>
+                {item.label}
+              </div>
+            ))}
           </div>
-        )}
 
-        {/* ==================== STEP 3: Processing ==================== */}
-        {step === 'processing' && (
-          <div className="card slide-up" style={{ textAlign: 'center' }}>
-            <h2 className="card-title" style={{ justifyContent: 'center' }}>
-              <span className="icon">🧠</span> AI is Processing Your CSV
-            </h2>
-            <p className="card-description">
-              Our LLM is intelligently mapping your columns to GrowEasy CRM fields in batches.
-              This may take a moment depending on file size.
-            </p>
-            <ProgressBar
-              processed={progress.processed}
-              total={progress.total}
-            />
+          <div className="nav-section">
+            <div className="nav-section-label">Control Center</div>
+            {NAV_CONTROL.map((item) => (
+              <div
+                key={item.label}
+                className={`nav-item${activeNav === item.label ? ' active' : ''}`}
+                onClick={() => setActiveNav(item.label)}
+              >
+                <span className="nav-icon">{item.icon}</span>
+                {item.label}
+              </div>
+            ))}
           </div>
-        )}
+        </nav>
 
-        {/* ==================== STEP 4: Results ==================== */}
-        {step === 'results' && result && (
-          <div className="slide-up">
-            {/* Stats */}
-            <div className="stats-grid" style={{ marginBottom: 32 }}>
-              <div className="stat-card blue">
-                <div className="stat-value blue">{result.total}</div>
+        <div className="sidebar-bottom">
+          <div className="nav-item">
+            <span className="nav-icon">🏢</span>
+            Business Center
+          </div>
+        </div>
+      </aside>
+
+      {/* ── MAIN ── */}
+      <div className="main-content">
+        {/* Page header */}
+        <div className="page-header">
+          <div>
+            <div className="page-title">Manage Your Leads</div>
+            <div className="page-subtitle">Monitor lead status, assign tasks, and close deals faster.</div>
+          </div>
+          <button id="import-csv-btn" className="import-btn" onClick={handleOpenModal}>
+            ⬆ Import CSV
+          </button>
+        </div>
+
+        <div className="page-body">
+          {/* Stats row */}
+          {result && (
+            <div className="stats-row fade-in">
+              <div className="stat-card primary">
+                <div className="stat-value">{result.total}</div>
                 <div className="stat-label">Total Rows</div>
               </div>
-              <div className="stat-card green">
-                <div className="stat-value green">{result.parsed.length}</div>
-                <div className="stat-label">Successfully Imported</div>
+              <div className="stat-card success">
+                <div className="stat-value">{result.parsed.length}</div>
+                <div className="stat-label">Imported</div>
               </div>
-              <div className="stat-card red">
-                <div className="stat-value red">{result.skipped}</div>
-                <div className="stat-label">Skipped Records</div>
+              <div className="stat-card danger">
+                <div className="stat-value">{result.skipped}</div>
+                <div className="stat-label">Skipped</div>
               </div>
-              <div className="stat-card purple">
-                <div className="stat-value purple">
+              <div className="stat-card warning">
+                <div className="stat-value">
                   {result.total > 0
                     ? Math.round((result.parsed.length / result.total) * 100)
                     : 0}%
@@ -295,57 +236,268 @@ export default function HomePage() {
                 <div className="stat-label">Success Rate</div>
               </div>
             </div>
+          )}
 
-            {/* Results table */}
-            <div className="card">
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                  marginBottom: 20,
-                  flexWrap: 'wrap',
-                  gap: 12,
-                }}
-              >
-                <div>
-                  <h2 className="card-title">
-                    <span className="icon">📊</span> CRM Records
-                  </h2>
-                  <p className="card-description" style={{ marginBottom: 0 }}>
-                    AI-extracted leads ready for GrowEasy CRM import.
-                  </p>
-                </div>
-                <div className="action-row" style={{ marginTop: 0 }}>
-                  <button
-                    id="export-csv-btn"
-                    className="btn btn-success"
-                    onClick={handleExport}
-                    disabled={result.parsed.length === 0}
-                  >
-                    ⬇️ Export CSV
-                  </button>
-                  <button className="btn btn-secondary" onClick={handleReset}>
-                    🔄 Import Another
-                  </button>
-                </div>
+          {/* Leads table */}
+          <div className="leads-header">
+            <div className="leads-title">Your Leads</div>
+            <div className="search-row">
+              <div className="search-input-wrap">
+                <input
+                  id="lead-search"
+                  className="search-input"
+                  placeholder="Enter email or phone number..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                <button className="search-icon-btn">🔍</button>
               </div>
-
-              <ResultTable
-                parsed={result.parsed}
-                skippedRecords={result.skippedRecords}
-              />
+              <button
+                className="refresh-btn"
+                title="Refresh"
+                onClick={() => setSearchQuery('')}
+              >
+                ↻
+              </button>
+              {result && (
+                <button
+                  className="btn btn-outline"
+                  style={{ fontSize: 13, padding: '8px 16px' }}
+                  onClick={() => exportToCSV(result.parsed)}
+                >
+                  ⬇ Export
+                </button>
+              )}
             </div>
           </div>
-        )}
-      </main>
 
-      {/* Footer */}
-      <footer className="footer">
-        <div className="container">
-          Built for GrowEasy · LeadMorph AI · Powered by Ollama &amp; Llama 3.2
+          {leads.length === 0 ? (
+            <div className="table-card">
+              <div className="empty-state">
+                <div className="empty-icon">📋</div>
+                <div className="empty-title">No leads yet</div>
+                <div className="empty-sub">
+                  Click <strong>Import CSV</strong> to upload and process your leads.
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="table-card fade-in">
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Lead Name</th>
+                      <th>Email</th>
+                      <th>Contact</th>
+                      <th>Date Created</th>
+                      <th>Company</th>
+                      <th>Status</th>
+                      <th>Quality</th>
+                      <th>Lead Owner</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visible.map((lead, i) => {
+                      const status = STATUS_MAP[lead.crm_status] ?? { label: lead.crm_status || '—', cls: 'badge-gray' };
+                      const phone = lead.mobile_without_country_code
+                        ? `${lead.country_code || '+'}${lead.mobile_without_country_code}`
+                        : '—';
+                      const dateStr = lead.created_at
+                        ? new Date(lead.created_at).toLocaleDateString('en-US', {
+                            month: 'short', day: 'numeric', year: 'numeric',
+                          })
+                        : '—';
+
+                      return (
+                        <tr key={i}>
+                          <td className="td-name">{lead.name || '—'}</td>
+                          <td style={{ color: '#4f7cff' }}>{lead.email || <span className="td-muted">—</span>}</td>
+                          <td>{phone}</td>
+                          <td className="td-muted">{dateStr}</td>
+                          <td>{lead.company || <span className="td-muted">—</span>}</td>
+                          <td>
+                            {lead.crm_status ? (
+                              <span className={`badge ${status.cls}`}>{status.label}</span>
+                            ) : (
+                              <span className="td-muted">—</span>
+                            )}
+                          </td>
+                          <td className="td-muted">—</td>
+                          <td className="td-muted">{lead.lead_owner || '—'}</td>
+                          <td>
+                            <button className="actions-btn">More ›</button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {filtered.length > visibleCount && (
+                <div className="load-more-row">
+                  <button
+                    id="load-more-btn"
+                    className="load-more-btn"
+                    onClick={() => setVisibleCount((c) => c + 10)}
+                  >
+                    Load more
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      </footer>
+      </div>
+
+      {/* ── MODAL ── */}
+      {modalOpen && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && handleCloseModal()}>
+          <div className="modal">
+            <div className="modal-header">
+              <div>
+                <div className="modal-title">Import Leads via CSV</div>
+                <div className="modal-subtitle">Upload a CSV file to bulk import leads into your system.</div>
+              </div>
+              <button className="modal-close" onClick={handleCloseModal} id="modal-close-btn">✕</button>
+            </div>
+
+            <div className="modal-body">
+              {/* Error */}
+              {error && (
+                <div className="alert alert-error">
+                  <span>⚠️</span>
+                  <div>
+                    <div>{error}</div>
+                    {error.includes('Ollama') && (
+                      <div style={{ marginTop: 6, fontSize: 12 }}>
+                        Run: <code>ollama serve</code> and <code>ollama pull llama3.2</code>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* UPLOAD STEP */}
+              {modalStep === 'upload' && (
+                <div>
+                  <div
+                    {...getRootProps()}
+                    className={`modal-dropzone${isDragActive ? ' dragging' : ''}`}
+                    id="modal-dropzone"
+                  >
+                    <input {...getInputProps()} id="csv-file-input" />
+                    <div className="upload-icon">↑</div>
+                    <div className="dropzone-title">Drop your CSV file here</div>
+                    <div className="dropzone-sub">or click to browse files</div>
+                    <div className="file-chip">
+                      <span>○</span> Supported file: .csv (max 5MB)
+                    </div>
+                    <div className="required-headers">
+                      Required headers: created_at, name, email, country_code,
+                      mobile_without_country_code, company, city, state, country, lead_owner,
+                      crm_status, crm_note. Template includes default + custom CRM fields to reduce upload errors.
+                    </div>
+                    <button
+                      type="button"
+                      className="download-template"
+                      onClick={(e) => { e.stopPropagation(); downloadSampleCSV(); }}
+                    >
+                      📄 Download Sample CSV Template
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* PREVIEW STEP */}
+              {modalStep === 'preview' && file && csvData && (
+                <div>
+                  {/* File info row */}
+                  <div className="file-selected-row">
+                    <div className="file-csv-icon">📄</div>
+                    <div>
+                      <div className="file-selected-name">{file.name}</div>
+                      <div className="file-selected-size">{formatFileSize(file.size)}</div>
+                    </div>
+                    <button className="file-remove-btn" onClick={handleRemoveFile} title="Remove file">✕</button>
+                  </div>
+
+                  {/* Preview table */}
+                  <div className="preview-table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          {csvData.headers.slice(0, 6).map((h) => (
+                            <th key={h}>{h.toUpperCase()}</th>
+                          ))}
+                          {csvData.headers.length > 6 && (
+                            <th>+{csvData.headers.length - 6} more</th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {csvData.rows.slice(0, 8).map((row, i) => (
+                          <tr key={i}>
+                            {csvData.headers.slice(0, 6).map((h) => (
+                              <td key={h} title={row[h]}>
+                                {row[h] || <span style={{ color: '#d1d5db' }}>—</span>}
+                              </td>
+                            ))}
+                            {csvData.headers.length > 6 && <td />}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {csvData.totalRows > 8 && (
+                    <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 8, textAlign: 'center' }}>
+                      Showing 8 of {csvData.totalRows} rows
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* PROCESSING STEP */}
+              {modalStep === 'processing' && (
+                <div className="progress-section">
+                  <div className="progress-dots">
+                    <div className="progress-dot" />
+                    <div className="progress-dot" />
+                    <div className="progress-dot" />
+                  </div>
+                  <div className="progress-label">AI is processing your CSV...</div>
+                  <div className="progress-track">
+                    <div className="progress-fill" style={{ width: `${progress}%` }} />
+                  </div>
+                  <div className="progress-text">
+                    Intelligently mapping columns to CRM fields — {progress}%
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            {modalStep !== 'processing' && (
+              <div className="modal-footer">
+                <button id="modal-cancel-btn" className="btn btn-outline" onClick={handleCloseModal}>
+                  Cancel
+                </button>
+                <button
+                  id="modal-upload-btn"
+                  className="btn btn-orange"
+                  onClick={modalStep === 'upload' ? () => {
+                    (document.getElementById('csv-file-input') as HTMLInputElement)?.click();
+                  } : handleUpload}
+                  disabled={modalStep === 'preview' && !file}
+                >
+                  {modalStep === 'upload' ? 'Upload File' : '🚀 Upload File'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
