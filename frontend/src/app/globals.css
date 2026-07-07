@@ -1,5 +1,23 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
+:root {
+  --bg-color: #f4f5f7;
+  --text-color: #1a1a2e;
+  --text-muted: #6b7280;
+  --card-bg: #fff;
+  --border-color: #e8eaf0;
+  --sidebar-hover: #f8f9fc;
+}
+
+.dark {
+  --bg-color: #0f172a;
+  --text-color: #f1f5f9;
+  --text-muted: #94a3b8;
+  --card-bg: #1e293b;
+  --border-color: #334155;
+  --sidebar-hover: #334155;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -10,11 +28,12 @@ html { scroll-behavior: smooth; }
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: #f4f5f7;
-  color: #1a1a2e;
+  background: var(--bg-color);
+  color: var(--text-color);
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
   overflow-x: hidden;
+  transition: background 0.2s, color 0.2s;
 }
 
 /* ===== LAYOUT ===== */
@@ -27,8 +46,8 @@ body {
 .sidebar {
   width: 220px;
   min-width: 220px;
-  background: #fff;
-  border-right: 1px solid #e8eaf0;
+  background: var(--card-bg);
+  border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   position: fixed;

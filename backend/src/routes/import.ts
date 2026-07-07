@@ -26,53 +26,62 @@ const upload = multer({
 // POST /api/import
 // Accepts multipart CSV, returns structured CRM JSON
 router.post('/', upload.single('file'), async (req: Request, res: Response): Promise<void> => {
+  if (!req.file) {
+    res.status(400).json({ error: 'No file uploaded' });
+    return;
+  }
+  
+  // 1. Parse CSV
+  let rows: Record<string, string>[];
   try {
-    if (!req.file) {
-      res.status(400).json({ error: 'No file uploaded' });
-      return;
-    }
-    console.log(`\n📥 Received file upload: ${req.file.originalname} (${req.file.size} bytes)`);
+    rows = parseCSV(req.file.buffer);
+  } catch (parseErr) {
+    res.status(422).json({ error: `CSV parsing failed: ${(parseErr as Error).message}` });
+    return;
+  }
 
-    // 1. Parse CSV
-    let rows: Record<string, string>[];
-    try {
-      rows = parseCSV(req.file.buffer);
-    } catch (parseErr) {
-      res.status(422).json({ error: `CSV parsing failed: ${(parseErr as Error).message}` });
-      return;
-    }
+  if (rows.length === 0) {
+    res.status(422).json({ error: 'CSV file is empty or has no data rows' });
+    return;
+  }
 
-    if (rows.length === 0) {
-      res.status(422).json({ error: 'CSV file is empty or has no data rows' });
-      return;
-    }
+  const headers = getHeaders(rows);
 
-    const headers = getHeaders(rows);
+  // Setup SSE Headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+  // Flush headers immediately
+  res.flushHeaders();
 
-    // 2. AI Extraction (batched)
-    const { parsed, skipped } = await extractCrmBatch(rows, headers);
+  console.log(`\n📥 Starting SSE stream for: ${req.file.originalname} (${rows.length} rows)`);
 
-    const result: ImportResult = {
-      parsed,
-      skipped: skipped.length,
-      total: rows.length,
-      skippedRecords: skipped,
-    };
+  const sendEvent = (type: string, data: any) => {
+    res.write(`event: ${type}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
 
-    res.json(result);
+  try {
+    // 2. AI Extraction (streaming)
+    await extractCrmBatch(rows, headers, (parsed, skipped, processed, total) => {
+      sendEvent('batch', { parsed, skipped, processed, total });
+    });
+
+    // 3. Finish stream
+    sendEvent('done', { success: true });
   } catch (err) {
     console.error('Import error:', err);
     const message = err instanceof Error ? err.message : 'Unknown error';
-
+    
     if (message.includes('GEMINI_API_KEY is not set')) {
-      res.status(503).json({
-        error: 'Gemini API Key is missing. Please add it to the backend/.env file.',
-        hint: 'GEMINI_API_KEY=your_api_key_here',
-      });
-      return;
+      sendEvent('error', { error: 'Gemini API Key is missing. Please add it to the backend/.env file.' });
+    } else {
+      sendEvent('error', { error: message });
     }
-
-    res.status(500).json({ error: message });
+  } finally {
+    res.end();
   }
 });
 

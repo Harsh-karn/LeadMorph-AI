@@ -4,6 +4,8 @@ import { useState, useCallback } from 'react';
 import { parseCSVFile, ParsedCSV, formatFileSize } from '@/lib/csvParser';
 import { importCSV, exportToCSV, ImportResult, CrmRecord } from '@/lib/api';
 import { useDropzone } from 'react-dropzone';
+import { FixedSizeList as List } from 'react-window';
+import AutoSizer from 'react-virtualized-auto-sizer';
 
 // ─── Sample CSV template data ───────────────────────────────────────────────
 const SAMPLE_CSV = `created_at,name,email,country_code,mobile_without_country_code,company,city,state,country,lead_owner,crm_status,crm_note,data_source,possession_time,description
@@ -89,38 +91,41 @@ export default function HomePage() {
     setModalStep('upload');
   };
 
-  const handleUpload = async () => {
+  const handleUpload = () => {
     if (!file) return;
     setError(null);
     setModalStep('processing');
     setProgress(0);
 
-    // Local LLMs can be very slow, so we increment the progress bar slowly
-    // up to 99% while we wait for the backend to respond.
-    const interval = setInterval(() => {
-      setProgress((p) => {
-        if (p < 50) return p + 2;
-        if (p < 80) return p + 1;
-        if (p < 99) return p + 0.5;
-        return 99;
-      });
-    }, 1000);
+    const initialResult: ImportResult = { parsed: [], skipped: 0, total: csvData?.data.length || 0, skippedRecords: [] };
+    setResult(initialResult);
 
-    try {
-      const res = await importCSV(file);
-      clearInterval(interval);
-      setProgress(100);
-      setResult(res);
-      setVisibleCount(10);
-      setTimeout(() => {
-        setModalOpen(false);
-        setModalStep('upload');
-      }, 600);
-    } catch (e) {
-      clearInterval(interval);
-      setError((e as Error).message);
-      setModalStep('preview');
-    }
+    importCSV(file, {
+      onBatch: (parsedChunk, skippedChunk, processed, total) => {
+        setResult(prev => {
+          if (!prev) return prev;
+          return {
+            parsed: [...prev.parsed, ...parsedChunk],
+            skipped: prev.skipped + skippedChunk.length,
+            total,
+            skippedRecords: [...prev.skippedRecords, ...skippedChunk]
+          };
+        });
+        setProgress(Math.round((processed / total) * 100));
+      },
+      onDone: () => {
+        setProgress(100);
+        setVisibleCount(10);
+        setTimeout(() => {
+          setModalOpen(false);
+          setModalStep('upload');
+        }, 600);
+      },
+      onError: (errMsg) => {
+        setError(errMsg);
+        setModalStep('preview');
+      }
+    });
   };
 
   // Lead filtering + pagination
@@ -166,6 +171,17 @@ export default function HomePage() {
               </div>
             ))}
           </nav>
+          <div style={{ flex: 1 }} />
+          <div 
+            className="nav-item" 
+            style={{ marginBottom: 20, justifyContent: 'center' }}
+            onClick={() => {
+              document.body.classList.toggle('dark');
+            }}
+          >
+            <span className="nav-icon">🌗</span>
+            Toggle Dark Mode
+          </div>
         </aside>
 
       {/* ── MAIN ── */}
@@ -253,70 +269,64 @@ export default function HomePage() {
               </div>
             </div>
           ) : (
-            <div className="table-card fade-in">
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Lead Name</th>
-                      <th>Email</th>
-                      <th>Contact</th>
-                      <th>Date Created</th>
-                      <th>Company</th>
-                      <th>Status</th>
-                      <th>Quality</th>
-                      <th>Lead Owner</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visible.map((lead, i) => {
-                      const status = STATUS_MAP[lead.crm_status] ?? { label: lead.crm_status || '—', cls: 'badge-gray' };
-                      const phone = lead.mobile_without_country_code
-                        ? `${lead.country_code || '+'}${lead.mobile_without_country_code}`
-                        : '—';
-                      const dateStr = lead.created_at
-                        ? new Date(lead.created_at).toLocaleDateString('en-US', {
-                            month: 'short', day: 'numeric', year: 'numeric',
-                          })
-                        : '—';
-
-                      return (
-                        <tr key={i}>
-                          <td className="td-name">{lead.name || '—'}</td>
-                          <td style={{ color: '#4f7cff' }}>{lead.email || <span className="td-muted">—</span>}</td>
-                          <td>{phone}</td>
-                          <td className="td-muted">{dateStr}</td>
-                          <td>{lead.company || <span className="td-muted">—</span>}</td>
-                          <td>
-                            {lead.crm_status ? (
-                              <span className={`badge ${status.cls}`}>{status.label}</span>
-                            ) : (
-                              <span className="td-muted">—</span>
-                            )}
-                          </td>
-                          <td className="td-muted">—</td>
-                          <td className="td-muted">{lead.lead_owner || '—'}</td>
-                          <td>
-                            <button className="actions-btn">More ›</button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+            <div className="table-card fade-in" style={{ height: '600px', display: 'flex', flexDirection: 'column' }}>
+              <div className="table-header-row" style={{ display: 'flex', borderBottom: '1px solid var(--border-color, #e5e7eb)', padding: '12px 16px', fontWeight: 500, fontSize: '13px', color: 'var(--text-color, #6b7280)' }}>
+                <div style={{ flex: '1.5' }}>Lead Name</div>
+                <div style={{ flex: '2' }}>Email</div>
+                <div style={{ flex: '1.5' }}>Contact</div>
+                <div style={{ flex: '1' }}>Date Created</div>
+                <div style={{ flex: '1.5' }}>Company</div>
+                <div style={{ flex: '1' }}>Status</div>
+                <div style={{ flex: '1' }}>Lead Owner</div>
+                <div style={{ flex: '0.5', textAlign: 'right' }}>Actions</div>
               </div>
-              {filtered.length > visibleCount && (
-                <div className="load-more-row">
-                  <button
-                    id="load-more-btn"
-                    className="load-more-btn"
-                    onClick={() => setVisibleCount((c) => c + 10)}
-                  >
-                    Load more
-                  </button>
-                </div>
-              )}
+              <div style={{ flex: 1 }}>
+                <AutoSizer>
+                  {({ height, width }) => (
+                    <List
+                      height={height}
+                      itemCount={filtered.length}
+                      itemSize={60}
+                      width={width}
+                      itemData={filtered}
+                    >
+                      {({ index, style, data }) => {
+                        const lead = data[index];
+                        const status = STATUS_MAP[lead.crm_status] ?? { label: lead.crm_status || '—', cls: 'badge-gray' };
+                        const phone = lead.mobile_without_country_code
+                          ? `${lead.country_code || '+'}${lead.mobile_without_country_code}`
+                          : '—';
+                        const dateStr = lead.created_at
+                          ? new Date(lead.created_at).toLocaleDateString('en-US', {
+                              month: 'short', day: 'numeric', year: 'numeric',
+                            })
+                          : '—';
+
+                        return (
+                          <div style={{ ...style, display: 'flex', alignItems: 'center', padding: '0 16px', borderBottom: '1px solid var(--border-color, #f3f4f6)', fontSize: '14px' }}>
+                            <div style={{ flex: '1.5', fontWeight: 500 }}>{lead.name || '—'}</div>
+                            <div style={{ flex: '2', color: '#4f7cff' }}>{lead.email || <span className="td-muted">—</span>}</div>
+                            <div style={{ flex: '1.5' }}>{phone}</div>
+                            <div style={{ flex: '1', color: '#6b7280', fontSize: '13px' }}>{dateStr}</div>
+                            <div style={{ flex: '1.5' }}>{lead.company || <span className="td-muted">—</span>}</div>
+                            <div style={{ flex: '1' }}>
+                              {lead.crm_status ? (
+                                <span className={`badge ${status.cls}`}>{status.label}</span>
+                              ) : (
+                                <span className="td-muted">—</span>
+                              )}
+                            </div>
+                            <div style={{ flex: '1', color: '#6b7280' }}>{lead.lead_owner || '—'}</div>
+                            <div style={{ flex: '0.5', textAlign: 'right' }}>
+                              <button className="actions-btn">More ›</button>
+                            </div>
+                          </div>
+                        );
+                      }}
+                    </List>
+                  )}
+                </AutoSizer>
+              </div>
             </div>
           )}
         </div>

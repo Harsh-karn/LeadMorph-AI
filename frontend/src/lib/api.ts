@@ -30,21 +30,67 @@ export interface ImportResult {
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
 
-export async function importCSV(file: File): Promise<ImportResult> {
+export function importCSV(
+  file: File,
+  callbacks: {
+    onBatch: (parsed: CrmRecord[], skipped: any[], processed: number, total: number) => void;
+    onDone: () => void;
+    onError: (err: string) => void;
+  }
+): void {
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${BACKEND_URL}/api/import`, {
-    method: 'POST',
-    body: formData,
-  });
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', `${BACKEND_URL}/api/import`, true);
+  
+  let seenBytes = 0;
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(errorData.error || `Server error: ${response.status}`);
-  }
+  xhr.onreadystatechange = () => {
+    if (xhr.readyState === 3 || xhr.readyState === 4) {
+      const newData = xhr.responseText.substring(seenBytes);
+      if (!newData) return;
+      seenBytes = xhr.responseText.length;
 
-  return response.json() as Promise<ImportResult>;
+      const lines = newData.split('\n\n');
+      for (const block of lines) {
+        if (!block.trim()) continue;
+        
+        const linesInBlock = block.split('\n');
+        let eventType = 'message';
+        let dataStr = '';
+
+        for (const line of linesInBlock) {
+          if (line.startsWith('event: ')) {
+            eventType = line.substring(7).trim();
+          } else if (line.startsWith('data: ')) {
+            dataStr = line.substring(6).trim();
+          }
+        }
+
+        if (dataStr) {
+          try {
+            const data = JSON.parse(dataStr);
+            if (eventType === 'batch') {
+              callbacks.onBatch(data.parsed, data.skipped, data.processed, data.total);
+            } else if (eventType === 'done') {
+              callbacks.onDone();
+            } else if (eventType === 'error') {
+              callbacks.onError(data.error || 'Stream error');
+            }
+          } catch (e) {
+            console.error('Failed to parse SSE JSON:', e);
+          }
+        }
+      }
+    }
+  };
+
+  xhr.onerror = () => {
+    callbacks.onError('Network error occurred during import.');
+  };
+
+  xhr.send(formData);
 }
 
 export function exportToCSV(records: CrmRecord[], filename = 'crm-export.csv'): void {

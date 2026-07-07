@@ -55,7 +55,7 @@ export interface SkippedResult {
 export async function extractCrmBatch(
   rows: Record<string, string>[],
   headers: string[],
-  onProgress?: (processed: number, total: number) => void
+  onBatchComplete?: (batchParsed: CrmRecord[], batchSkipped: SkippedResult[], processed: number, total: number) => void
 ): Promise<BatchResult> {
   const allParsed: CrmRecord[] = [];
   const allSkipped: SkippedResult[] = [];
@@ -66,8 +66,13 @@ export async function extractCrmBatch(
     allParsed.push(...result.parsed);
     allSkipped.push(...result.skipped);
 
-    if (onProgress) {
-      onProgress(Math.min(i + BATCH_SIZE, rows.length), rows.length);
+    if (onBatchComplete) {
+      onBatchComplete(
+        result.parsed,
+        result.skipped,
+        Math.min(i + BATCH_SIZE, rows.length),
+        rows.length
+      );
     }
   }
 
