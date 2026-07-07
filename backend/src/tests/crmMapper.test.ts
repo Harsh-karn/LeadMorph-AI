@@ -1,5 +1,5 @@
-import { validateAndClean } from '../src/services/crmMapper';
-import { CrmRecord } from '../src/types/crm';
+import { validateAndClean } from '../services/crmMapper';
+import { CrmRecord } from '../types/crm';
 
 describe('CRM Mapper Validation', () => {
   it('should invalidate records missing both email and mobile', () => {
