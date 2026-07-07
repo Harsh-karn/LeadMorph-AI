@@ -31,10 +31,7 @@ const STATUS_MAP: Record<string, { label: string; cls: string }> = {
 
 // ─── Sidebar nav ─────────────────────────────────────────────────────────────
 const NAV_ITEMS = [
-  { icon: '⊞', label: 'Dashboard' },
   { icon: '☰', label: 'Manage Leads' },
-  { icon: '⊕', label: 'Lead Sources' },
-  { icon: '⚙', label: 'Settings' },
 ];
 
 // ─── Component ───────────────────────────────────────────────────────────────
