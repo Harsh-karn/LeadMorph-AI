@@ -52,8 +52,7 @@ export async function extractCrmBatch(
   return { parsed: allParsed, skipped: allSkipped };
 }
 
-// Simple sleep helper for retries
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 
 async function processBatchWithRetry(
   batch: Record<string, string>[],
