@@ -1,11 +1,10 @@
 import { CrmRecord } from '../types/crm';
 import { validateAndClean } from './crmMapper';
-import { GoogleGenAI } from '@google/genai';
 
+const LM_STUDIO_URL = process.env.LM_STUDIO_URL || 'http://127.0.0.1:1234/v1/chat/completions';
+const MODEL_NAME = process.env.LM_STUDIO_MODEL || 'local-model';
 const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || '15', 10);
 const MAX_RETRIES = 3;
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const SYSTEM_PROMPT = `You are a CRM data extraction assistant. Your job is to map CSV rows to GrowEasy CRM fields.
 
@@ -75,8 +74,6 @@ export async function extractCrmBatch(
   return { parsed: allParsed, skipped: allSkipped };
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 async function processBatchWithRetry(
   batch: Record<string, string>[],
   headers: string[]
@@ -117,21 +114,28 @@ ${JSON.stringify(batch, null, 2)}
 
 Map these records to the CRM format. Return ONLY a JSON array.`;
 
-  console.log(`Sending batch of ${batch.length} rows to Gemini...`);
-  
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: userMessage,
-    config: {
-      systemInstruction: SYSTEM_PROMPT,
+  console.log(`Sending batch of ${batch.length} rows to LM Studio...`);
+  const response = await fetch(LM_STUDIO_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: MODEL_NAME,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userMessage },
+      ],
       temperature: 0.1,
-      responseMimeType: 'application/json',
-    }
+    }),
   });
+  console.log(`Received response from LM Studio: ${response.status}`);
 
-  console.log(`Received response from Gemini!`);
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`LM Studio API Error (${response.status}): ${errText}`);
+  }
 
-  const rawText = response.text || '';
+  const data = await response.json() as any;
+  const rawText = data.choices?.[0]?.message?.content?.trim() || '';
 
   // Extract JSON array from response (handle markdown code blocks)
   const jsonMatch = rawText.match(/\[[\s\S]*\]/);

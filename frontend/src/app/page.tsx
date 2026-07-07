@@ -98,9 +98,16 @@ export default function HomePage() {
     setModalStep('processing');
     setProgress(0);
 
+    // Local LLMs can be very slow, so we increment the progress bar slowly
+    // up to 99% while we wait for the backend to respond.
     const interval = setInterval(() => {
-      setProgress((p) => Math.min(p + 6, 92));
-    }, 600);
+      setProgress((p) => {
+        if (p < 50) return p + 2;
+        if (p < 80) return p + 1;
+        if (p < 99) return p + 0.5;
+        return 99;
+      });
+    }, 1000);
 
     try {
       const res = await importCSV(file);
@@ -438,7 +445,7 @@ export default function HomePage() {
                     <div className="progress-fill" style={{ width: `${progress}%` }} />
                   </div>
                   <div className="progress-text">
-                    Intelligently mapping columns to CRM fields — {progress}%
+                    Intelligently mapping columns... (Local AI processing depends on your computer's speed and may take a few minutes) — {Math.floor(progress)}%
                   </div>
                 </div>
               )}
