@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react';
 import { parseCSVFile, ParsedCSV, formatFileSize } from '@/lib/csvParser';
 import { importCSV, exportToCSV, ImportResult, CrmRecord } from '@/lib/api';
 import { useDropzone } from 'react-dropzone';
-import { FixedSizeList as List } from 'react-window';
+import { List } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 
 // ─── Sample CSV template data ───────────────────────────────────────────────
