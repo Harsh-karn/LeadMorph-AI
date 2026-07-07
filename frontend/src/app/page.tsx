@@ -5,7 +5,7 @@ import { parseCSVFile, ParsedCSV, formatFileSize } from '@/lib/csvParser';
 import { importCSV, exportToCSV, ImportResult, CrmRecord } from '@/lib/api';
 import { useDropzone } from 'react-dropzone';
 import { List } from 'react-window';
-import AutoSizer from 'react-virtualized-auto-sizer';
+import { AutoSizer } from 'react-virtualized-auto-sizer';
 
 // ─── Sample CSV template data ───────────────────────────────────────────────
 const SAMPLE_CSV = `created_at,name,email,country_code,mobile_without_country_code,company,city,state,country,lead_owner,crm_status,crm_note,data_source,possession_time,description
@@ -97,7 +97,7 @@ export default function HomePage() {
     setModalStep('processing');
     setProgress(0);
 
-    const initialResult: ImportResult = { parsed: [], skipped: 0, total: csvData?.data.length || 0, skippedRecords: [] };
+    const initialResult: ImportResult = { parsed: [], skipped: 0, total: csvData?.rows.length || 0, skippedRecords: [] };
     setResult(initialResult);
 
     importCSV(file, {
@@ -281,16 +281,19 @@ export default function HomePage() {
                 <div style={{ flex: '0.5', textAlign: 'right' }}>Actions</div>
               </div>
               <div style={{ flex: 1 }}>
+                {/* @ts-ignore - types are out of date for named export */}
                 <AutoSizer>
-                  {({ height, width }) => (
-                    <List
+                  {({ height, width }: { height: number; width: number }) => {
+                    const AnyList = List as any;
+                    return (
+                    <AnyList
                       height={height}
                       itemCount={filtered.length}
                       itemSize={60}
                       width={width}
                       itemData={filtered}
                     >
-                      {({ index, style, data }) => {
+                      {({ index, style, data }: { index: number; style: any; data: any }) => {
                         const lead = data[index];
                         const status = STATUS_MAP[lead.crm_status] ?? { label: lead.crm_status || '—', cls: 'badge-gray' };
                         const phone = lead.mobile_without_country_code
@@ -323,8 +326,9 @@ export default function HomePage() {
                           </div>
                         );
                       }}
-                    </List>
-                  )}
+                    </AnyList>
+                    );
+                  }}
                 </AutoSizer>
               </div>
             </div>
