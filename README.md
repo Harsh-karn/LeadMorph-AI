@@ -10,6 +10,9 @@
   [![Gemini AI](https://img.shields.io/badge/Gemini_2.5_Flash-AI-4285F4?style=for-the-badge&logo=google)](https://aistudio.google.com/)
   [![Docker](https://img.shields.io/badge/Docker-Supported-2496ED?style=for-the-badge&logo=docker)](https://www.docker.com/)
 
+  ### 🌐 [Live Demo (Vercel)](https://lead-morph-ai.vercel.app/)
+  ### 🔌 [API Endpoint (Railway)](https://leadmorph-ai-production.up.railway.app/)
+
   *LeadMorph AI eliminates the need for manual data mapping. Drop in any messy CSV, and watch the AI instantly extract, structure, and validate the leads into a clean CRM format.*
 </div>
 
